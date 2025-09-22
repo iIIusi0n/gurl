@@ -2,7 +2,7 @@
   "name": "gurl",
   "displayName": "gURL",
   "description": "Generates cURL commands from Go Gin handler code",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "engines": {
     "vscode": "^1.104.0"
   },
