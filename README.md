@@ -1,71 +1,107 @@
-# gurl README
+## gURL — Generates cURL from Go Gin handlers (VS Code)
 
-This is the README for your extension "gurl". After writing up a brief description, we recommend including the following sections.
+gURL scans your Go workspace for Gin handlers and routes, then generates ready‑to‑run cURL commands. It understands real handler signatures and route registrations, infers JSON request bodies from your structs, and can copy the command with one click.
 
-## Features
+### Key features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- **Accurate handler detection**
+  - `func (c *gin.Context)` handlers (free functions and methods)
+  - Functions that return `gin.HandlerFunc` (free or with receivers), including factories that `return func(c *gin.Context) { ... }`
 
-For example if there is an image subfolder under your extension project workspace:
+- **Route linking across the workspace**
+  - Detects `r.GET/POST/...`, `r.Handle("METHOD", ...)`, `r.Any(...)`
+  - Supports handler factories called in routes: `r.GET("/path", Handler())`
+  - Resolves group prefixes: `g := r.Group("/api"); g.GET("/v1", h)
 
-\!\[feature X\]\(images/feature-x.png\)
+- **Smart cURL generation**
+  - Extracts path parameters, query params, headers, and cookies from handler code
+  - **JSON body inference**: Detects `ShouldBindJSON/BindJSON` targets, reads struct definitions and `json:"..."` tags, and emits a type‑aware sample JSON (strings, numbers, booleans, arrays, maps, pointers, `time.Time`, etc.)
+  - Form and multipart bodies use sensible placeholders
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+- **Inline ergonomics**
+  - CodeLens above each handler: “gURL: Generate cURL” and “copy” (copies directly without opening a view)
+  - Overlay panel shows the generated cURL with a small “(copy)” control
 
-## Requirements
+## Usage
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+### From CodeLens (fastest)
 
-## Extension Settings
+1. Open a Go file with Gin handlers.
+2. Use the CodeLens above a handler:
+   - “gURL: Generate cURL” → opens the overlay with the cURL.
+   - “copy” → copies the cURL directly to your clipboard.
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+### From the Command Palette
 
-For example:
+- “gURL: Generate cURL for Gin Handlers (Current File)” — choose a handler (and route if multiple), view the cURL overlay.
+- “gURL: Generate cURL for Gin Handlers (Workspace)” — search all Go files, then choose a handler.
+- “gURL: Copy cURL for Handler Under Cursor” — copy directly without opening the overlay.
 
-This extension contributes the following settings:
+## Commands
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+- `gurl.generateForSymbolAt` — Generate cURL for handler under cursor (used by CodeLens)
+- `gurl.copyForSymbolAt` — Copy cURL for handler under cursor
+- `gurl.generateForFile` — Generate for handlers in the current file
+- `gurl.generateForWorkspace` — Generate for handlers across the workspace
 
-## Known Issues
+## Settings
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+- `gurl.baseUrl` (string, default: `http://localhost:8080`)
+  - Base URL to prepend to paths. If left as default, gURL will try to infer the actual address from calls like `engine.Run(":8080")` or `http.ListenAndServe("0.0.0.0:8080", ...)`.
+- `gurl.defaultHeaders` (object)
+  - Headers to include with every cURL (e.g. `{ "Accept": "application/json" }`).
+- `gurl.useHttpieStyle` (boolean)
+  - Reserved for future HTTPie‑style output.
 
-## Release Notes
+## What gURL detects
 
-Users appreciate release notes as you update your extension.
+- Handlers
+  - `func Name(c *gin.Context) { ... }`
+  - `func (h *Handler) Name(c *gin.Context) { ... }`
+  - `func Name() gin.HandlerFunc { return func(c *gin.Context) { ... } }`
+  - `func (h *Handler) Name() gin.HandlerFunc { return func(c *gin.Context) { ... } }`
+  - Factories that return `func(c *gin.Context)` even without explicit `gin.HandlerFunc` in the signature
 
-### 1.0.0
+- Routes
+  - `r.GET/POST/PUT/DELETE/PATCH/OPTIONS/HEAD("/path", Handler)`
+  - `r.Handle("METHOD", "/path", Handler)`
+  - `r.Any("/path", Handler)`
+  - Handler factories invoked at call sites: `Handler()`
+  - Group prefixes composed via `Group("/prefix")`
 
-Initial release of ...
+## JSON body inference details
 
-### 1.0.1
+gURL looks for bindings like:
 
-Fixed issue #.
+```go
+c.ShouldBindJSON(&Type{...})
+c.BindJSON(&Type{...})
+c.ShouldBindJSON(&req) // where req has a struct type
+```
 
-### 1.1.0
+It then scans your workspace text for the struct definition and builds a sample JSON object using:
+- `json:"name,omitempty"` tags (ignores `-`), otherwise lowerCamel of the Go field
+- Type‑aware placeholders (strings, numbers, booleans, arrays, maps, pointers, `time.Time`, `json.RawMessage`)
 
-Added features X, Y, and Z.
+## Troubleshooting
 
----
+- CodeLens not showing?
+  - Ensure the file imports `github.com/gin-gonic/gin` and the function matches one of the supported handler patterns.
+- Base URL looks wrong?
+  - Set `gurl.baseUrl` explicitly to override inference. Otherwise gURL uses the first detected server start.
+- No routes found for a handler?
+  - Ensure routes are registered via supported calls (`GET/Handle/Any`) and that handler names match.
 
-## Following extension guidelines
+## Limitations
 
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
+- Parsing is heuristic (regex‑based). Very unconventional patterns may be missed.
+- Structs defined in external modules (not opened as workspace files) won’t be introspected for JSON fields.
+- Multipart body generation is placeholder‑only right now.
 
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
+## Release notes
 
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+- Handler detection for context‑param, return‑type factories, and receiver methods
+- Route detection including factories `Handler()` and group prefixes
+- JSON struct and type‑aware body inference
+- Base URL auto‑detection from `Run/RunTLS/ListenAndServe`
+- CodeLens actions: generate and copy
