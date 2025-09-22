@@ -170,8 +170,9 @@ function findHandlersInText(doc: vscode.TextDocument, ginAlias: string): Handler
 	}
 
 	// Pattern 2: func Name() gin.HandlerFunc { return func(c *gin.Context) { ... } }
+	// Allow optional parentheses around return type
 	const pattern2 = new RegExp(
-		`func\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*\\)\\s*${ginAlias}\\.HandlerFunc\\s*\\{`,
+		`func\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*\\)\\s*(?:\\(${ginAlias}\\.HandlerFunc\\)|${ginAlias}\\.HandlerFunc)\\s*\\{`,
 		'g'
 	);
 	while ((m = pattern2.exec(text))) {
@@ -180,6 +181,31 @@ function findHandlersInText(doc: vscode.TextDocument, ginAlias: string): Handler
 		const bodyEnd = findMatchingBrace(text, startIndex);
 		const inner = text.slice(startIndex, bodyEnd + 1);
 		// Find context var in returned handler if present
+		const innerCtxParam = new RegExp(`func\\s*\\(\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\*\\s*${ginAlias}\\.Context\\s*\\)`);
+		const im = innerCtxParam.exec(inner);
+		const ctxVar = im ? im[1] : undefined;
+		const params = inferParamsFromBody(inner, ctxVar, ginAlias);
+		handlers.push({
+			name,
+			filePath: doc.uri.fsPath,
+			nameRange: new vscode.Range(pos(m.index), pos(m.index + name.length)),
+			contextParamName: ctxVar,
+			ginAlias,
+			params,
+		});
+	}
+
+	// Pattern 2b: method receiver returning gin.HandlerFunc
+	// Example: func (h *X) Name() gin.HandlerFunc { return func(c *gin.Context) { ... } }
+	const pattern2Method = new RegExp(
+		`func\\s*\\([^)]*\\)\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*\\)\\s*(?:\\(${ginAlias}\\.HandlerFunc\\)|${ginAlias}\\.HandlerFunc)\\s*\\{`,
+		'g'
+	);
+	while ((m = pattern2Method.exec(text))) {
+		const name = m[1];
+		const startIndex = pattern2Method.lastIndex - 1;
+		const bodyEnd = findMatchingBrace(text, startIndex);
+		const inner = text.slice(startIndex, bodyEnd + 1);
 		const innerCtxParam = new RegExp(`func\\s*\\(\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\*\\s*${ginAlias}\\.Context\\s*\\)`);
 		const im = innerCtxParam.exec(inner);
 		const ctxVar = im ? im[1] : undefined;
@@ -206,7 +232,7 @@ function findRoutesInText(doc: vscode.TextDocument, handlers: HandlerFunction[])
 	const groupPrefixes = buildGroupPrefixMap(text, ginAlias);
 
 	// router.GET("/path", Handler)
-	const routeRegex = new RegExp(`\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\\s*\\(\\s*\"([^\"]*)\"\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)`, 'g');
+	const routeRegex = new RegExp(`\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\\s*\\(\\s*\"([^\"]*)\"\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)(?:\\s*\\(\\s*\\))?`, 'g');
 	let m: RegExpExecArray | null;
 	while ((m = routeRegex.exec(text))) {
 		const recv = m[1];
@@ -229,7 +255,7 @@ function findRoutesInText(doc: vscode.TextDocument, handlers: HandlerFunction[])
 	}
 
 	// router.Handle("METHOD", "/path", Handler)
-	const handleRegex = new RegExp(`\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.Handle\\s*\\(\\s*\"([A-Z]+)\"\\s*,\\s*\"([^\"]*)\"\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)`, 'g');
+	const handleRegex = new RegExp(`\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.Handle\\s*\\(\\s*\"([A-Z]+)\"\\s*,\\s*\"([^\"]*)\"\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)(?:\\s*\\(\\s*\\))?`, 'g');
 	while ((m = handleRegex.exec(text))) {
 		const recv = m[1];
 		const method = m[2];
@@ -251,7 +277,7 @@ function findRoutesInText(doc: vscode.TextDocument, handlers: HandlerFunction[])
 	}
 
 	// Any: recv.Any("/path", Handler)
-	const anyRegex = new RegExp(`\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.Any\\s*\\(\\s*\"([^\"]*)\"\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)`, 'g');
+	const anyRegex = new RegExp(`\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.Any\\s*\\(\\s*\"([^\"]*)\"\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)(?:\\s*\\(\\s*\\))?`, 'g');
 	while ((m = anyRegex.exec(text))) {
 		const recv = m[1];
 		const relPath = m[2];
@@ -273,7 +299,7 @@ function findRoutesInTextByNames(doc: vscode.TextDocument, handlerNames: Set<str
 	const ginAlias = detectGinAliasFromImports(text);
 	const groupPrefixes = buildGroupPrefixMap(text, ginAlias);
 
-	const routeRegex = new RegExp(`\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\\s*\\(\\s*\"([^\"]*)\"\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)`, 'g');
+	const routeRegex = new RegExp(`\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\\s*\\(\\s*\"([^\"]*)\"\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)(?:\\s*\\(\\s*\\))?`, 'g');
 	let m: RegExpExecArray | null;
 	while ((m = routeRegex.exec(text))) {
 		const recv = m[1];
@@ -287,7 +313,7 @@ function findRoutesInTextByNames(doc: vscode.TextDocument, handlerNames: Set<str
 		routes.push({ method, path, handlerName, filePath: doc.uri.fsPath, range: new vscode.Range(pos(m.index), pos(routeRegex.lastIndex)) });
 	}
 
-	const handleRegex = new RegExp(`\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.Handle\\s*\\(\\s*\"([A-Z]+)\"\\s*,\\s*\"([^\"]*)\"\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)`, 'g');
+	const handleRegex = new RegExp(`\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.Handle\\s*\\(\\s*\"([A-Z]+)\"\\s*,\\s*\"([^\"]*)\"\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)(?:\\s*\\(\\s*\\))?`, 'g');
 	while ((m = handleRegex.exec(text))) {
 		const recv = m[1];
 		const method = m[2];
@@ -300,7 +326,7 @@ function findRoutesInTextByNames(doc: vscode.TextDocument, handlerNames: Set<str
 		routes.push({ method, path, handlerName, filePath: doc.uri.fsPath, range: new vscode.Range(pos(m.index), pos(handleRegex.lastIndex)) });
 	}
 
-	const anyRegex = new RegExp(`\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.Any\\s*\\(\\s*\"([^\"]*)\"\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)`, 'g');
+	const anyRegex = new RegExp(`\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.Any\\s*\\(\\s*\"([^\"]*)\"\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)(?:\\s*\\(\\s*\\))?`, 'g');
 	while ((m = anyRegex.exec(text))) {
 		const recv = m[1];
 		const relPath = m[2];
