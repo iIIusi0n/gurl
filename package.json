@@ -4,20 +4,93 @@
   "description": "Generate cURL command from Go Gin handler code",
   "version": "0.0.1",
   "engines": {
-    "vscode": "^1.104.0"
+    "vscode": "^1.80.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:gurl.generateForWorkspace",
+    "onCommand:gurl.generateForFile",
+    "onCommand:gurl.generateForSymbolAt",
+    "workspaceContains:**/*.go",
+    "onLanguage:go"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "gurl.helloWorld",
-        "title": "Hello World"
+        "command": "gurl.generateForWorkspace",
+        "title": "gURL: Generate cURL for Gin Handlers (Workspace)"
+      },
+      {
+        "command": "gurl.generateForFile",
+        "title": "gURL: Generate cURL for Gin Handlers (Current File)"
+      },
+      {
+        "command": "gurl.generateForSymbolAt",
+        "title": "gURL: Generate cURL for Handler Under Cursor"
+      },
+      {
+        "command": "gurl.copyForSymbolAt",
+        "title": "gURL: Copy cURL for Handler Under Cursor"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "gURL",
+      "properties": {
+        "gurl.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:8080",
+          "description": "Base URL used when generating requests (e.g., http://localhost:8080)"
+        },
+        "gurl.defaultHeaders": {
+          "type": "object",
+          "default": {
+            "Accept": "application/json"
+          },
+          "markdownDescription": "Default headers to include with every generated request"
+        },
+        "gurl.useHttpieStyle": {
+          "type": "boolean",
+          "default": false,
+          "description": "Prefer HTTPie-like formatting (future option)"
+        }
+      }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "when": "resourceLangId == go",
+          "command": "gurl.generateForFile",
+          "group": "navigation@10"
+        },
+        {
+          "when": "resourceLangId == go",
+          "command": "gurl.generateForSymbolAt",
+          "group": "navigation@11"
+        },
+        {
+          "when": "resourceLangId == go",
+          "command": "gurl.copyForSymbolAt",
+          "group": "navigation@12"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "gurl.generateForWorkspace",
+          "when": "true"
+        },
+        {
+          "command": "gurl.generateForFile",
+          "when": "true"
+        },
+        {
+          "command": "gurl.generateForSymbolAt",
+          "when": "true"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "pnpm run compile",
