@@ -2,7 +2,7 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import { linkHandlersToRoutes, scanDocument, scanWorkspace, scanRoutesAcrossWorkspace } from './goScanner';
-import { HandlerCodeLensProvider, showCurl, showCurlQuickPick, copyCurlToClipboard } from './ui';
+import { HandlerCodeLensProvider, showCurl, showCurlQuickPick, copyCurlToClipboard, showCurlOverlay } from './ui';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -29,9 +29,13 @@ export function activate(context: vscode.ExtensionContext) {
 		if (!linked.length) { vscode.window.showInformationMessage('No Gin handlers found in this file'); return; }
 		const pick = await vscode.window.showQuickPick(linked.map(h => ({ label: h.name, description: h.routes.map(r => `${r.method} ${r.path}`).join(', '), handler: h })), { placeHolder: 'Select handler' });
 		if (!pick) { return; }
+		if (pick.handler.routes.length === 1) {
+			await showCurlOverlay(pick.handler, pick.handler.routes[0]);
+			return;
+		}
 		const routePick = await showCurlQuickPick(pick.handler, pick.handler.routes);
 		if (!routePick) { return; }
-		await showCurl(pick.handler, routePick.route);
+		await showCurlOverlay(pick.handler, routePick.route);
 	}));
 
 	context.subscriptions.push(vscode.commands.registerCommand('gurl.generateForWorkspace', async () => {
@@ -40,9 +44,13 @@ export function activate(context: vscode.ExtensionContext) {
 		if (!linked.length) { vscode.window.showInformationMessage('No Gin handlers found in workspace'); return; }
 		const pick = await vscode.window.showQuickPick(linked.map(h => ({ label: h.name, description: h.routes.map(r => `${r.method} ${r.path}`).join(', '), handler: h })), { placeHolder: 'Select handler' });
 		if (!pick) { return; }
+		if (pick.handler.routes.length === 1) {
+			await showCurlOverlay(pick.handler, pick.handler.routes[0]);
+			return;
+		}
 		const routePick = await showCurlQuickPick(pick.handler, pick.handler.routes);
 		if (!routePick) { return; }
-		await showCurl(pick.handler, routePick.route);
+		await showCurlOverlay(pick.handler, routePick.route);
 	}));
 
 	context.subscriptions.push(vscode.commands.registerCommand('gurl.copyForSymbolAt', async (uri: vscode.Uri, functionName: string) => {
@@ -52,6 +60,10 @@ export function activate(context: vscode.ExtensionContext) {
 		const linked = linkHandlersToRoutes(handlers, routes);
 		const handler = linked.find(h => h.name === functionName);
 		if (!handler) { vscode.window.showWarningMessage('No Gin handler for this symbol'); return; }
+		if (handler.routes.length === 1) {
+			await copyCurlToClipboard(handler, handler.routes[0]);
+			return;
+		}
 		const routePick = await showCurlQuickPick(handler, handler.routes);
 		if (!routePick) { return; }
 		await copyCurlToClipboard(handler, routePick.route);
@@ -64,9 +76,13 @@ export function activate(context: vscode.ExtensionContext) {
 		const linked = linkHandlersToRoutes(handlers, routes);
 		const handler = linked.find(h => h.name === functionName);
 		if (!handler) { vscode.window.showWarningMessage('No Gin handler for this symbol'); return; }
+		if (handler.routes.length === 1) {
+			await showCurlOverlay(handler, handler.routes[0]);
+			return;
+		}
 		const routePick = await showCurlQuickPick(handler, handler.routes);
 		if (!routePick) { return; }
-		await showCurl(handler, routePick.route);
+		await showCurlOverlay(handler, routePick.route);
 	}));
 }
 

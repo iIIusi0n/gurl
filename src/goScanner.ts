@@ -81,15 +81,22 @@ function inferParamsFromBody(body: string, ctxVar: string | undefined, ginAlias:
 	const cPattern = `${c}`;
 
 	// Body detection
-	const jsonBind = new RegExp(`${cPattern}\\.(ShouldBindJSON|BindJSON|Bind|ShouldBind)\\s*\\(`);
-	const formBind = new RegExp(`${cPattern}\\.(PostForm|ShouldBind|Bind)\\s*\\(`);
+	const jsonBind = new RegExp(`${cPattern}\\.(ShouldBindJSON|BindJSON)\\s*\\(`);
+	const formBind = new RegExp(`${cPattern}\\.(PostForm)\\s*\\(`);
 	const multipart = new RegExp(`${cPattern}\\.(FormFile|MultipartForm)\\b`);
+	const queryBind = new RegExp(`${cPattern}\\.(ShouldBindQuery|BindQuery)\\s*\\(`);
+	const genericBind = new RegExp(`${cPattern}\\.(ShouldBind|Bind)\\s*\\(`);
 	if (jsonBind.test(body)) {
 		params.bodyType = 'json';
 	} else if (multipart.test(body)) {
 		params.bodyType = 'multipart';
 	} else if (formBind.test(body)) {
 		params.bodyType = 'form';
+	} else if (queryBind.test(body)) {
+		params.bodyType = 'none';
+	} else if (genericBind.test(body)) {
+		// Ambiguous without suffix; do not assume JSON. Prefer none.
+		params.bodyType = 'none';
 	} else {
 		params.bodyType = 'none';
 	}
