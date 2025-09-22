@@ -60,7 +60,12 @@ export function generateCurl(
 		if (handler.params.bodyType === 'json') {
 			headers['Content-Type'] = headers['Content-Type'] || 'application/json';
 			dataFlag = '-d';
-			bodyPart = `'{}'`;
+			if (handler.params.jsonFieldNames && handler.params.jsonFieldNames.length) {
+				const obj = Object.fromEntries(handler.params.jsonFieldNames.map(n => [n, `<${normalizePlaceholder(n)}>`]));
+				bodyPart = shellQuote(JSON.stringify(obj, null, 2));
+			} else {
+				bodyPart = `'{}'`;
+			}
 		} else if (handler.params.bodyType === 'form') {
 			headers['Content-Type'] = headers['Content-Type'] || 'application/x-www-form-urlencoded';
 			dataFlag = '--data-urlencode';

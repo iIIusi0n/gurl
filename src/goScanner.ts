@@ -6,6 +6,8 @@ export type HandlerParams = {
 	headers: string[];
 	cookies: string[];
 	bodyType: 'json' | 'form' | 'multipart' | 'none' | 'unknown';
+	jsonStructName?: string;
+	jsonFieldNames?: string[];
 };
 
 export type HandlerFunction = {
@@ -68,7 +70,7 @@ function extractContextParamName(signatureParams: string, ginAlias: string): str
 	return m ? m[1] : undefined;
 }
 
-function inferParamsFromBody(body: string, ctxVar: string | undefined, ginAlias: string): HandlerParams {
+function inferParamsFromBody(body: string, ctxVar: string | undefined, ginAlias: string, fullText: string): HandlerParams {
 	const params: HandlerParams = {
 		pathParams: [],
 		queryParams: [],
@@ -99,6 +101,28 @@ function inferParamsFromBody(body: string, ctxVar: string | undefined, ginAlias:
 		params.bodyType = 'none';
 	} else {
 		params.bodyType = 'none';
+	}
+
+	// If JSON body, try to infer struct type and its fields from bindings
+	if (params.bodyType === 'json') {
+		// Prefer explicit struct literal binding: c.BindJSON(&Type{...})
+		let tm: RegExpExecArray | null;
+		const structLit = new RegExp(`${cPattern}\\.(ShouldBindJSON|BindJSON|ShouldBind|Bind)\\s*\\(\\s*&\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\{`, 'g');
+		if ((tm = structLit.exec(body))) {
+			params.jsonStructName = tm[2];
+			params.jsonFieldNames = extractStructFieldsFromText(fullText, params.jsonStructName);
+		} else {
+			// Address of variable: c.BindJSON(&var)
+			const addrVar = new RegExp(`${cPattern}\\.(ShouldBindJSON|BindJSON|ShouldBind|Bind)\\s*\\(\\s*&\\s*([a-zA-Z_][a-zA-Z0-9_]*)`, 'g');
+			if ((tm = addrVar.exec(body))) {
+				const varName = tm[2];
+				const typeName = findVarTypeInText(fullText, varName);
+				if (typeName) {
+					params.jsonStructName = typeName;
+					params.jsonFieldNames = extractStructFieldsFromText(fullText, typeName);
+				}
+			}
+		}
 	}
 
 	// Query params like c.Query("q") or c.DefaultQuery("q", "v")
@@ -139,6 +163,50 @@ function inferParamsFromBody(body: string, ctxVar: string | undefined, ginAlias:
 	return params;
 }
 
+function findVarTypeInText(text: string, varName: string): string | undefined {
+	// var varName Type
+	let m = new RegExp(`\\bvar\\s+${varName}\\s+\\*?([A-Za-z_][A-Za-z0-9_]*)\\b`).exec(text);
+	if (m) { return m[1]; }
+	// varName := &Type{...} or varName := Type{...}
+	m = new RegExp(`\\b${varName}\\s*[:=]\\s*&?\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\{`).exec(text);
+	if (m) { return m[1]; }
+	// varName = &Type{...}
+	m = new RegExp(`\\b${varName}\\s*=\\s*&?\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\{`).exec(text);
+	if (m) { return m[1]; }
+	// varName := new(Type)
+	m = new RegExp(`\\b${varName}\\s*:=\\s*new\\(\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\)`).exec(text);
+	if (m) { return m[1]; }
+	return undefined;
+}
+
+function extractStructFieldsFromText(text: string, typeName: string): string[] {
+	const defRe = new RegExp(`type\\s+${typeName}\\s+struct\\s*\\{([\\s\\S]*?)\\}`, 'm');
+	const m = defRe.exec(text);
+	if (!m) { return []; }
+	const body = m[1];
+	const lines = body.split(/\n/);
+	const fields: string[] = [];
+	for (const line of lines) {
+		const fr = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s+[^` \t]+(?:\s+`([^`]*)`)?/.exec(line);
+		if (!fr) { continue; }
+		const goField = fr[1];
+		const tag = fr[2] || '';
+		const jm = /json:\"([^\"]+)\"/.exec(tag);
+		if (jm) {
+			const name = jm[1].split(',')[0];
+			if (name && name !== '-') { fields.push(name); continue; }
+		}
+		// Fallback: lowerCamel from Go field
+		fields.push(lowerCamel(goField));
+	}
+	return Array.from(new Set(fields));
+}
+
+function lowerCamel(s: string): string {
+	if (!s) { return s; }
+	return s.charAt(0).toLowerCase() + s.slice(1);
+}
+
 function findHandlersInText(doc: vscode.TextDocument, ginAlias: string): HandlerFunction[] {
 	const text = doc.getText();
 	const pos = buildPositionResolver(doc);
@@ -158,7 +226,7 @@ function findHandlersInText(doc: vscode.TextDocument, ginAlias: string): Handler
 		const bodyEnd = findMatchingBrace(text, bodyStart);
 		const contextParamName = extractContextParamName(paramsSig, ginAlias);
 		const bodyText = bodyEnd > bodyStart ? text.slice(bodyStart, bodyEnd + 1) : '';
-		const params = inferParamsFromBody(bodyText, contextParamName, ginAlias);
+		const params = inferParamsFromBody(bodyText, contextParamName, ginAlias, text);
 		handlers.push({
 			name,
 			filePath: doc.uri.fsPath,
@@ -184,7 +252,7 @@ function findHandlersInText(doc: vscode.TextDocument, ginAlias: string): Handler
 		const innerCtxParam = new RegExp(`func\\s*\\(\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\*\\s*${ginAlias}\\.Context\\s*\\)`);
 		const im = innerCtxParam.exec(inner);
 		const ctxVar = im ? im[1] : undefined;
-		const params = inferParamsFromBody(inner, ctxVar, ginAlias);
+		const params = inferParamsFromBody(inner, ctxVar, ginAlias, text);
 		handlers.push({
 			name,
 			filePath: doc.uri.fsPath,
@@ -209,7 +277,7 @@ function findHandlersInText(doc: vscode.TextDocument, ginAlias: string): Handler
 		const innerCtxParam = new RegExp(`func\\s*\\(\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\*\\s*${ginAlias}\\.Context\\s*\\)`);
 		const im = innerCtxParam.exec(inner);
 		const ctxVar = im ? im[1] : undefined;
-		const params = inferParamsFromBody(inner, ctxVar, ginAlias);
+		const params = inferParamsFromBody(inner, ctxVar, ginAlias, text);
 		handlers.push({
 			name,
 			filePath: doc.uri.fsPath,
