@@ -7,7 +7,7 @@ export type HandlerParams = {
 	cookies: string[];
 	bodyType: 'json' | 'form' | 'multipart' | 'none' | 'unknown';
 	jsonStructName?: string;
-	jsonFieldNames?: string[];
+	jsonFields?: Array<{ name: string; goType: string }>;
 };
 
 export type HandlerFunction = {
@@ -110,7 +110,7 @@ function inferParamsFromBody(body: string, ctxVar: string | undefined, ginAlias:
 		const structLit = new RegExp(`${cPattern}\\.(ShouldBindJSON|BindJSON|ShouldBind|Bind)\\s*\\(\\s*&\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\{`, 'g');
 		if ((tm = structLit.exec(body))) {
 			params.jsonStructName = tm[2];
-			params.jsonFieldNames = extractStructFieldsFromText(fullText, params.jsonStructName);
+			params.jsonFields = extractStructFieldsFromText(fullText, params.jsonStructName);
 		} else {
 			// Address of variable: c.BindJSON(&var)
 			const addrVar = new RegExp(`${cPattern}\\.(ShouldBindJSON|BindJSON|ShouldBind|Bind)\\s*\\(\\s*&\\s*([a-zA-Z_][a-zA-Z0-9_]*)`, 'g');
@@ -119,7 +119,7 @@ function inferParamsFromBody(body: string, ctxVar: string | undefined, ginAlias:
 				const typeName = findVarTypeInText(fullText, varName);
 				if (typeName) {
 					params.jsonStructName = typeName;
-					params.jsonFieldNames = extractStructFieldsFromText(fullText, typeName);
+					params.jsonFields = extractStructFieldsFromText(fullText, typeName);
 				}
 			}
 		}
@@ -179,27 +179,32 @@ function findVarTypeInText(text: string, varName: string): string | undefined {
 	return undefined;
 }
 
-function extractStructFieldsFromText(text: string, typeName: string): string[] {
+function extractStructFieldsFromText(text: string, typeName: string): Array<{ name: string; goType: string }> {
 	const defRe = new RegExp(`type\\s+${typeName}\\s+struct\\s*\\{([\\s\\S]*?)\\}`, 'm');
 	const m = defRe.exec(text);
 	if (!m) { return []; }
 	const body = m[1];
 	const lines = body.split(/\n/);
-	const fields: string[] = [];
+	const fields: Array<{ name: string; goType: string }> = [];
 	for (const line of lines) {
-		const fr = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s+[^` \t]+(?:\s+`([^`]*)`)?/.exec(line);
+		const fr = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s+([^` \t]+)(?:\s+`([^`]*)`)?/.exec(line);
 		if (!fr) { continue; }
 		const goField = fr[1];
-		const tag = fr[2] || '';
+		const goType = fr[2];
+		const tag = fr[3] || '';
 		const jm = /json:\"([^\"]+)\"/.exec(tag);
 		if (jm) {
 			const name = jm[1].split(',')[0];
-			if (name && name !== '-') { fields.push(name); continue; }
+			if (name && name !== '-') { fields.push({ name, goType }); continue; }
 		}
 		// Fallback: lowerCamel from Go field
-		fields.push(lowerCamel(goField));
+		fields.push({ name: lowerCamel(goField), goType });
 	}
-	return Array.from(new Set(fields));
+	// Deduplicate by name
+	const seen = new Set<string>();
+	const unique: Array<{ name: string; goType: string }> = [];
+	for (const f of fields) { if (!seen.has(f.name)) { unique.push(f); seen.add(f.name); } }
+	return unique;
 }
 
 function lowerCamel(s: string): string {

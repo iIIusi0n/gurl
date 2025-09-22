@@ -60,8 +60,11 @@ export function generateCurl(
 		if (handler.params.bodyType === 'json') {
 			headers['Content-Type'] = headers['Content-Type'] || 'application/json';
 			dataFlag = '-d';
-			if (handler.params.jsonFieldNames && handler.params.jsonFieldNames.length) {
-				const obj = Object.fromEntries(handler.params.jsonFieldNames.map(n => [n, `<${normalizePlaceholder(n)}>`]));
+			if (handler.params.jsonFields && handler.params.jsonFields.length) {
+				const obj: Record<string, unknown> = {};
+				for (const f of handler.params.jsonFields) {
+					obj[f.name] = sampleValueForGoType(f.goType, f.name);
+				}
 				bodyPart = shellQuote(JSON.stringify(obj, null, 2));
 			} else {
 				bodyPart = `'{}'`;
@@ -104,6 +107,29 @@ function shellQuote(s: string): string {
 	// Quote single quotes for POSIX sh
 	if (s === '') { return "''"; }
 	return `'${s.replace(/'/g, `'\''`)}'`;
+}
+
+function sampleValueForGoType(goType: string, fieldName: string): unknown {
+	const base = goType.trim();
+	if (base.startsWith('*')) { return sampleValueForGoType(base.slice(1), fieldName); }
+	if (base.startsWith('[]')) { return [sampleValueForGoType(base.slice(2), fieldName)]; }
+	if (/^map\[.*\]/.test(base)) { return { key: `<key>`, value: `<value>` }; }
+	switch (base) {
+		case 'string': return `<${normalizePlaceholder(fieldName)}>`;
+		case 'int': case 'int8': case 'int16': case 'int32': case 'int64':
+		case 'uint': case 'uint8': case 'uint16': case 'uint32': case 'uint64':
+		case 'uintptr': return 0;
+		case 'float32': case 'float64': return 0.0;
+		case 'bool': return false;
+		case 'time.Time': return new Date().toISOString();
+		case 'json.RawMessage': return {};
+		default:
+			// Struct or alias: nest placeholder object minimally
+			if (/^[A-Z][A-Za-z0-9_]*$/.test(base)) {
+				return { [fieldName]: `<${normalizePlaceholder(fieldName)}>` };
+			}
+			return `<${normalizePlaceholder(fieldName)}>`;
+	}
 }
 
 
