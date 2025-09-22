@@ -81,23 +81,19 @@ function getCurlHtml(curl: string, handler: HandlerFunction, route?: RouteRegist
 			font-family: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
 			font-size: var(--vscode-editor-font-size, 12px);
 		}
-		.toolbar { display: flex; gap: 8px; margin-bottom: 8px; }
-		button {
-			padding: 6px 10px;
-			border: 1px solid var(--vscode-button-border, transparent);
-			border-radius: 6px;
-			background: var(--vscode-button-background);
-			color: var(--vscode-button-foreground);
+		.copy-link {
+			margin-left: 8px;
+			font-size: 12px;
+			color: var(--vscode-textLink-foreground);
 			cursor: pointer;
+			text-decoration: underline;
+			opacity: 0.9;
 		}
-		button:hover { background: var(--vscode-button-hoverBackground); }
+		.copy-link:hover { opacity: 1; }
 	</style>
 	</head>
 	<body>
-		<h1>${subtitle}</h1>
-		<div class="toolbar">
-			<button id="copy">Copy</button>
-		</div>
+		<h1>${subtitle} <span id="copy" class="copy-link">(copy)</span></h1>
 		<pre><code>${escaped}</code></pre>
 		<script>
 			const vscode = acquireVsCodeApi();
