@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { HandlerFunction, RouteRegistration } from './goScanner';
+import { HandlerFunction, RouteRegistration, scanDocument } from './goScanner';
 import { generateCurl, readOptions } from './curlGenerator';
 
 export function showCurlQuickPick(handler: HandlerFunction, routes: RouteRegistration[]) {
@@ -120,20 +120,19 @@ export class HandlerCodeLensProvider implements vscode.CodeLensProvider {
 	private onDidChangeEmitter = new vscode.EventEmitter<void>();
 	readonly onDidChangeCodeLenses = this.onDidChangeEmitter.event;
 
-	provideCodeLenses(document: vscode.TextDocument): vscode.ProviderResult<vscode.CodeLens[]> {
+	async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
 		const text = document.getText();
 		if (!text.includes('github.com/gin-gonic/gin')) { return []; }
-		// Lightweight heuristic: find function names preceded by 'func' for lenses; our command will re-scan accurately
+		// Use real handler detection so lenses only appear for Gin handlers
+		const { handlers } = await scanDocument(document);
 		const codeLenses: vscode.CodeLens[] = [];
-		const regex = /func\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
-		let m: RegExpExecArray | null;
-		while ((m = regex.exec(text))) {
-			const start = document.positionAt(m.index);
-			const range = new vscode.Range(start, start);
+		for (const handler of handlers) {
+			const rangeStart = handler.nameRange ? handler.nameRange.start : new vscode.Position(0, 0);
+			const range = new vscode.Range(rangeStart, rangeStart);
 			codeLenses.push(new vscode.CodeLens(range, {
 				title: 'gURL: Generate cURL',
 				command: 'gurl.generateForSymbolAt',
-				arguments: [document.uri, m[1], m.index],
+				arguments: [document.uri, handler.name],
 			}));
 		}
 		return codeLenses;
