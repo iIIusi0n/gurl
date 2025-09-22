@@ -568,3 +568,46 @@ export function linkHandlersToRoutes(handlers: HandlerFunction[], routes: RouteR
 }
 
 
+export async function detectBaseUrlFromWorkspace(): Promise<string | undefined> {
+	const goFiles = await vscode.workspace.findFiles('**/*.go', '**/{vendor,.git}/**');
+	let inferred: { scheme: 'http' | 'https'; hostPort: string } | undefined;
+	for (const uri of goFiles) {
+		const doc = await vscode.workspace.openTextDocument(uri);
+		const text = doc.getText();
+		let m: RegExpExecArray | null;
+		// gin Engine Run(addr)
+		const runRe = /\.[Rr]un(?:TLS)?\s*\(\s*"([^"]*)"/g;
+		while ((m = runRe.exec(text))) {
+			const addr = m[1];
+			const isTLS = /\.RunTLS\s*\(/.test(text.slice(m.index - 10, m.index + 10));
+			const hp = normalizeAddr(addr);
+			if (hp) { inferred = { scheme: isTLS ? 'https' : 'http', hostPort: hp }; break; }
+		}
+		if (inferred) { break; }
+		// http.ListenAndServe("host:port", handler)
+		const listenRe = /http\.ListenAndServe\s*\(\s*"([^"]*)"/g;
+		while ((m = listenRe.exec(text))) {
+			const hp = normalizeAddr(m[1]);
+			if (hp) { inferred = { scheme: 'http', hostPort: hp }; break; }
+		}
+		if (inferred) { break; }
+	}
+	if (inferred) { return `${inferred.scheme}://${inferred.hostPort}`; }
+	// Fallback: if any Run() without args found, default :8080
+	for (const uri of goFiles) {
+		const doc = await vscode.workspace.openTextDocument(uri);
+		const text = doc.getText();
+		if (/\.[Rr]un\s*\(\s*\)/.test(text)) { return 'http://localhost:8080'; }
+	}
+	return undefined;
+}
+
+function normalizeAddr(addr: string): string | undefined {
+	const a = addr.trim();
+	if (!a) { return undefined; }
+	if (a.startsWith(':')) { return `localhost${a}`; }
+	if (/^\d+\.\d+\.\d+\.\d+:\d+$/.test(a)) { return a; }
+	if (/^[A-Za-z0-9_.-]+:\d+$/.test(a)) { return a; }
+	return undefined;
+}
+

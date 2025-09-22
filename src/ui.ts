@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { HandlerFunction, RouteRegistration, scanDocument } from './goScanner';
+import { HandlerFunction, RouteRegistration, scanDocument, detectBaseUrlFromWorkspace } from './goScanner';
 import { generateCurl, readOptions } from './curlGenerator';
 
 export function showCurlQuickPick(handler: HandlerFunction, routes: RouteRegistration[]) {
@@ -18,7 +18,7 @@ export function showCurlQuickPick(handler: HandlerFunction, routes: RouteRegistr
 }
 
 export async function showCurl(handler: HandlerFunction, route: RouteRegistration | undefined) {
-	const opts = readOptions();
+	const opts = await withInferredBaseUrl(readOptions());
 	const curl = generateCurl(handler, route, opts);
 	const doc = await vscode.workspace.openTextDocument({ language: 'shellscript', content: curl });
 	await vscode.window.showTextDocument(doc, { preview: true });
@@ -28,7 +28,7 @@ export async function showCurl(handler: HandlerFunction, route: RouteRegistratio
 let curlPanel: vscode.WebviewPanel | undefined;
 
 export async function showCurlOverlay(handler: HandlerFunction, route: RouteRegistration | undefined) {
-	const opts = readOptions();
+	const opts = await withInferredBaseUrl(readOptions());
 	const curl = generateCurl(handler, route, opts);
 
 	if (!curlPanel) {
@@ -106,7 +106,7 @@ function getCurlHtml(curl: string, handler: HandlerFunction, route?: RouteRegist
 }
 
 export async function copyCurlToClipboard(handler: HandlerFunction, route: RouteRegistration | undefined) {
-	const opts = readOptions();
+	const opts = await withInferredBaseUrl(readOptions());
 	const curl = generateCurl(handler, route, opts);
 	await vscode.env.clipboard.writeText(curl);
 	vscode.window.showInformationMessage('cURL copied to clipboard');
@@ -140,6 +140,15 @@ export class HandlerCodeLensProvider implements vscode.CodeLensProvider {
 	}
 
 	refresh() { this.onDidChangeEmitter.fire(); }
+}
+
+async function withInferredBaseUrl(opts: ReturnType<typeof readOptions>): Promise<ReturnType<typeof readOptions>> {
+	// Only override if user hasn't changed default
+	if (opts.baseUrl === 'http://localhost:8080') {
+		const inferred = await detectBaseUrlFromWorkspace();
+		if (inferred) { return { ...opts, baseUrl: inferred }; }
+	}
+	return opts;
 }
 
 
