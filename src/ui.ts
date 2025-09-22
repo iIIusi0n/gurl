@@ -130,6 +130,11 @@ export class HandlerCodeLensProvider implements vscode.CodeLensProvider {
 				command: 'gurl.generateForSymbolAt',
 				arguments: [document.uri, handler.name],
 			}));
+			codeLenses.push(new vscode.CodeLens(range, {
+				title: 'copy',
+				command: 'gurl.copyForSymbolAt',
+				arguments: [document.uri, handler.name],
+			}));
 		}
 		return codeLenses;
 	}
